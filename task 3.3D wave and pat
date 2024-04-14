@@ -1,0 +1,125 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+// WiFi credentials
+const char* wifiNetwork = "Kaushik";
+const char* wifiPassword = "123456789";
+
+// MQTT broker details
+const char* mqttBroker = "broker.emqx.io";
+const int mqttPort = 1883;
+
+// MQTT topics
+const char* publishTopic = "SIT210/event";
+const char* subscribeTopic = "SIT210/event";
+
+// Ultrasonic sensor pins
+const int trigPin = 7;
+const int echoPin = 6;
+
+// LED pin
+const int statusLedPin = 8;
+
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+// Function to set up WiFi connection
+void setupWiFi() {
+  delay(10);
+  Serial.println("Connecting to WiFi");
+  WiFi.begin(wifiNetwork, wifiPassword);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// MQTT callback function
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received on topic: ");
+  Serial.println(topic);
+  
+  // Print the received message
+  Serial.print("Message: ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+  // Flash the LED differently based on the message
+  if (strcmp(topic, subscribeTopic) == 0) {
+    for (int i = 0; i < length; i++) {
+      if (payload[i] == 'w') {
+        // Flash the LED 3 times for "wave"
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(statusLedPin, HIGH);
+          delay(200);
+          digitalWrite(statusLedPin, LOW);
+          delay(200);
+        }
+      } else if (payload[i] == 'p') {
+        // Flash the LED 5 times for "pat"
+        for (int i = 0; i < 5; i++) {
+          digitalWrite(statusLedPin, HIGH);
+          delay(100);
+          digitalWrite(statusLedPin, LOW);
+          delay(100);
+        }
+      }
+    }
+  }
+}
+
+// Function to reconnect to MQTT broker
+void mqttReconnect() {
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    if (mqttClient.connect("ArduinoClient")) {
+      Serial.println("connected");
+      mqttClient.subscribe(subscribeTopic);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(statusLedPin, OUTPUT);
+  setupWiFi();
+  mqttClient.setServer(mqttBroker, mqttPort);
+  mqttClient.setCallback(mqttCallback);
+}
+
+void loop() {
+  if (!mqttClient.connected()) {
+    mqttReconnect();
+  }
+  mqttClient.loop();
+
+  // Ultrasonic sensor code
+  long duration, distance;
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  duration = pulseIn(echoPin, HIGH);
+  distance = duration * 0.034 / 2;
+
+  // If wave or pat detected, publish message
+  if (distance < 100) { // Adjust this value as needed
+    Serial.println("Wave or Pat detected!");
+    mqttClient.publish(publishTopic, "Kaushik Wave or Pat detected!");
+    delay(1000); // Publish only once every second
+  }
+}
